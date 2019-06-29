@@ -1,9 +1,9 @@
 // TODO Option to save progress to file and reload.
-// TODO git repo
-// TODO type alias (usize, usize)
+// TODO log game log to file for replay
+// TODO separate modules
 
 use rand::Rng;
-use std::fs::File;
+use std::fs::{read_dir, File};
 use std::io::{self, Write};
 use std::str::FromStr;
 use std::{thread, time};
@@ -15,10 +15,12 @@ extern crate clap;
 extern crate rand;
 extern crate serde;
 
+type Coord = (usize, usize);
+
 struct Character {
     name: String,
     sex: Sex,
-    whereabouts: Option<(usize, usize)>,
+    whereabouts: Option<Coord>,
     skril: u64,
 }
 
@@ -48,6 +50,37 @@ impl Land {
     }
 }
 
+trait Enemy {
+    fn dough(&self) -> u64;
+    fn intimidate(&self);
+}
+
+struct Bureaucrat {
+    dough: u64,
+    name: &'static str,
+    jurisdiction: Jurisdiction,
+}
+
+impl Bureaucrat {
+    fn new(dough: u64, name: &'static str, jurisdiction: Jurisdiction) -> Bureaucrat {
+        Bureaucrat {
+            dough,
+            name,
+            jurisdiction,
+        }
+    }
+}
+
+impl Enemy for Bureaucrat {
+    fn intimidate(&self) {
+        println!("I'm gon raise yo taxes boy");
+    }
+
+    fn dough(&self) -> u64 {
+        self.dough
+    }
+}
+
 #[derive(Copy, Clone, Debug, Deserialize)]
 struct Plot {
     dosh: u64,
@@ -58,6 +91,14 @@ struct Level {
     name: String,
     level_id: u32,
     key_price: u32,
+}
+
+#[derive(Debug)]
+enum Jurisdiction {
+    Mountains,
+    Islands,
+    Tundra,
+    Desert,
 }
 
 #[derive(Debug)]
@@ -74,6 +115,18 @@ enum Cardinal {
     West,
 }
 
+enum Command {
+    // Barter, // TODO
+    Combat,
+    Movement,
+    // System, // TODO
+}
+
+struct Desire {
+    command: Command,
+    args: Vec<String>,
+}
+
 impl FromStr for Cardinal {
     type Err = ();
 
@@ -88,14 +141,18 @@ impl FromStr for Cardinal {
     }
 }
 
+const LEVEL_DATA_PATH: &str = "src/res/";
+
 const READ_STRING_FAILURE: &str = "What? I didn't get that...";
 const YES_VALUES: [&str; 9] = [
     "y", "yes", "yea", "yeah", "uh huh", "yeh", "sure", "why not", "totally",
 ];
+
 const DRAMATIC_PAUSE: time::Duration = time::Duration::from_millis(500);
 
 const LAND_WIDTH_X: usize = 10;
 const LAND_WIDTH_Y: usize = 10;
+
 const ZENI_GEN_CHANCE: f32 = 0.8;
 
 fn prompt() -> String {
@@ -184,10 +241,74 @@ fn create_character() -> Character {
     }
 }
 
-fn read_level() -> Level {
-    let file = File::open("src/res/level1.json").expect("Failed to open level data file.");
-    let level: Level = serde_json::from_reader(file).expect("File is not valid JSON.");
-    level
+fn read_levels() -> Vec<Level> {
+    let files = read_dir(LEVEL_DATA_PATH)
+        .expect("Level directory not found.")
+        .flatten();
+    let levels: Vec<Level> = files
+        .map(|f| {
+            let file = File::open(f.path()).expect("Failed to open level data file.");
+            let level: Level = serde_json::from_reader(file).expect("File is not valid JSON.");
+            level
+        })
+        .collect();
+    levels
+}
+
+fn command_move_player(
+    character: &mut Character,
+    land: &Land,
+    args: Vec<String>,
+) -> Result<(), &'static str> {
+    if args.len() != 2 {
+        return Err("I just need a direction hoss.");
+    }
+
+    let direction_str = &args[1];
+    let wb = character.whereabouts.unwrap();
+
+    match direction_str.parse::<Cardinal>() {
+        Ok(direction) => {
+            let i_moved_here = yo_whered_i_move_to(&direction, wb)?;
+
+            println!("You walk {:?}.", direction);
+            character.whereabouts = Some((i_moved_here.0, i_moved_here.1));
+
+            let new_plot = &mut land.plots.unwrap()[wb.1][wb.0];
+
+            if new_plot.dosh != 0 {
+                println!("You found {} zeni boi", new_plot.dosh);
+                character.skril += new_plot.dosh;
+                new_plot.dosh = 0;
+            }
+
+            Ok(())
+        }
+        Err(_) => Err("tf?"),
+    }
+}
+
+fn command_fight_enemy(character: &mut Character, land: &Land, args: Vec<String>) {
+    // let enemy = land.
+}
+
+fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
+    let components = input.split(' ').collect::<Vec<&str>>();
+    let root = components[0];
+
+    let command = match root {
+        "walk" | "go" | "run" => Ok(Command::Movement),
+        "punch" | "kiss" | "lick" => Ok(Command::Combat),
+        _ => Err("Tf?"),
+    };
+
+    match command {
+        Ok(command) => Ok(Desire {
+            command,
+            args: components.into_iter().map(String::from).collect(),
+        }),
+        Err(e) => Err(e),
+    }
 }
 
 fn init_adventure(character: &mut Character) {
@@ -198,63 +319,55 @@ fn init_adventure(character: &mut Character) {
     println!("You have no food nor water. You are naked.");
     println!("Your leg hurts.");
 
-    let _level = read_level();
+    let _levels = read_levels();
 
-    // Initialize land.
     let mut land = Land::new();
     land.init_plots();
 
     character.whereabouts = Some((0, 0));
 
-    println!("Pick a direction {{north, south, east, west}}.");
-    // TODO Turn into shell
-
+    println!("Cha wanna do now?");
     loop {
-        let direction_str = prompt().to_lowercase();
+        let player_desire = prompt().to_lowercase();
 
-        let wb = character.whereabouts.unwrap();
-
-        match direction_str.parse::<Cardinal>() {
-            Ok(direction) => {
-                match calc_wb(&direction, wb) {
-                    Ok(new_wb) => {
-                        println!("You walk {:?}.", direction);
-                        character.whereabouts = Some((new_wb.0, new_wb.1));
-
-                        let new_plot = &mut land.plots.unwrap()[wb.1][wb.0];
-
-                        if new_plot.dosh != 0 {
-                            println!("You found {} zeni boi", new_plot.dosh);
-                            character.skril += new_plot.dosh;
-                            new_plot.dosh = 0;
-                        }
-                    }
+        match this_guy_wants_to(player_desire.as_ref()) {
+            Ok(desire) => match desire {
+                Desire {
+                    command: Command::Movement,
+                    args,
+                } => match command_move_player(character, &land, args) {
+                    Ok(_) => {}
                     Err(e) => {
                         println!("{}", e);
                     }
-                }
-            }
-            Err(_) => {
-                println!("tf?");
+                },
+
+                Desire {
+                    command: Command::Combat,
+                    args,
+                } => command_fight_enemy(character, &land, args),
+            },
+            Err(e) => {
+                println!("{}", e);
             }
         }
     }
 }
 
-fn calc_wb(direction: &Cardinal, wb: (usize, usize)) -> Result<(usize, usize), &str> {
-    let new_wb: (isize, isize);
+fn yo_whered_i_move_to(direction: &Cardinal, wb: Coord) -> Result<Coord, &'static str> {
+    let i_moved_here: (isize, isize);
 
     match direction {
-        Cardinal::North => new_wb = (wb.0 as isize, wb.1 as isize + 1 as isize),
-        Cardinal::East => new_wb = (wb.0 as isize + 1 as isize, wb.1 as isize),
-        Cardinal::South => new_wb = (wb.0 as isize, wb.1 as isize - 1 as isize),
-        Cardinal::West => new_wb = (wb.0 as isize - 1 as isize, wb.1 as isize),
+        Cardinal::North => i_moved_here = (wb.0 as isize, wb.1 as isize + 1 as isize),
+        Cardinal::East => i_moved_here = (wb.0 as isize + 1 as isize, wb.1 as isize),
+        Cardinal::South => i_moved_here = (wb.0 as isize, wb.1 as isize - 1 as isize),
+        Cardinal::West => i_moved_here = (wb.0 as isize - 1 as isize, wb.1 as isize),
     }
 
-    if !in_bounds(new_wb) {
+    if !in_bounds(i_moved_here) {
         Err("You hit a wall.")
     } else {
-        Ok((new_wb.0 as usize, new_wb.1 as usize))
+        Ok((i_moved_here.0 as usize, i_moved_here.1 as usize))
     }
 }
 
@@ -277,4 +390,16 @@ fn main() {
     };
 
     init_adventure(&mut character);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_level_data() {
+        let levels = read_levels();
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0].level_id, 1);
+    }
 }
