@@ -34,14 +34,29 @@ impl Land {
     }
 
     pub fn init_plots(&mut self) {
-        let rng = &mut rand::thread_rng();
-
-        self.plots = Some([[Plot { dosh: 0 }; LAND_WIDTH_X]; LAND_WIDTH_Y]);
+        self.plots = Some(
+            [[Plot {
+                dosh: 0,
+                enemy: None,
+            }; LAND_WIDTH_X]; LAND_WIDTH_Y],
+        );
         if let Some(mut plots) = self.plots {
             for i in 0..LAND_WIDTH_X {
                 for j in 0..LAND_WIDTH_Y {
-                    if rng.gen_range(0.0, 1.0) > ZENI_GEN_CHANCE {
-                        plots[i][j].dosh = rng.gen_range(0, 10)
+                    let cabbage_rng = &mut rand::thread_rng();
+                    let enemy_rng = &mut rand::thread_rng();
+
+                    let zeni_chance = cabbage_rng.gen_range(0.0, 1.0);
+                    if zeni_chance < ZENI_GEN_CHANCE {
+                        plots[i][j].dosh = (zeni_chance * 10.0) as u64
+                    }
+
+                    let enemy_chance = enemy_rng.gen_range(0.0, 1.0);
+                    if enemy_chance < ENEMY_GEN_CHANCE {
+                        plots[i][j].enemy = Some(Bureaucrat {
+                            dough: (enemy_chance * 50.0) as u64,
+                            jurisdiction: Jurisdiction::Islands,
+                        });
                     }
                 }
             }
@@ -55,17 +70,16 @@ trait Enemy {
     fn intimidate(&self);
 }
 
+#[derive(Copy, Clone, Debug, Deserialize)]
 struct Bureaucrat {
     dough: u64,
-    name: &'static str,
     jurisdiction: Jurisdiction,
 }
 
 impl Bureaucrat {
-    fn new(dough: u64, name: &'static str, jurisdiction: Jurisdiction) -> Bureaucrat {
+    fn new(dough: u64, jurisdiction: Jurisdiction) -> Bureaucrat {
         Bureaucrat {
             dough,
-            name,
             jurisdiction,
         }
     }
@@ -84,16 +98,17 @@ impl Enemy for Bureaucrat {
 #[derive(Copy, Clone, Debug, Deserialize)]
 struct Plot {
     dosh: u64,
+    enemy: Option<Bureaucrat>, // TODO Type parameter based on Enemy
 }
 
 #[derive(Debug, Deserialize)]
 struct Level {
     name: String,
-    level_id: u32,
-    key_price: u32,
+    level_id: u64,
+    key_price: u64,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Deserialize)]
 enum Jurisdiction {
     Mountains,
     Islands,
@@ -153,7 +168,8 @@ const DRAMATIC_PAUSE: time::Duration = time::Duration::from_millis(500);
 const LAND_WIDTH_X: usize = 10;
 const LAND_WIDTH_Y: usize = 10;
 
-const ZENI_GEN_CHANCE: f32 = 0.8;
+const ZENI_GEN_CHANCE: f32 = 0.3;
+const ENEMY_GEN_CHANCE: f32 = 0.2;
 
 fn prompt() -> String {
     let mut result = String::new();
@@ -255,7 +271,7 @@ fn read_levels() -> Vec<Level> {
     levels
 }
 
-fn command_move_player(
+fn command_move_character(
     character: &mut Character,
     land: &Land,
     args: Vec<String>,
@@ -282,14 +298,29 @@ fn command_move_player(
                 new_plot.dosh = 0;
             }
 
+            if let Some(enemy) = new_plot.enemy {
+                println!("uh oh there's someone here 🤪");
+            }
+
             Ok(())
         }
         Err(_) => Err("tf?"),
     }
 }
 
-fn command_fight_enemy(character: &mut Character, land: &Land, args: Vec<String>) {
-    // let enemy = land.
+fn command_fight_enemy(character: &mut Character, land: &Land, _args: Vec<String>) {
+    let wb = character.whereabouts.unwrap();
+
+    match land.plots.unwrap()[wb.1][wb.0].enemy {
+        Some(enemy) => {
+            character.skril += enemy.dough;
+            println!("This guy just gave you his life savings ({})", enemy.dough);
+            println!("say thank you sir");
+        }
+        None => {
+            println!("Ain't nobody around pal...");
+        }
+    }
 }
 
 fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
@@ -319,7 +350,12 @@ fn init_adventure(character: &mut Character) {
     println!("You have no food nor water. You are naked.");
     println!("Your leg hurts.");
 
-    let _levels = read_levels();
+    let levels = read_levels();
+    assert!(
+        !levels.is_empty(),
+        "Your game level data is corrupted... what did you do"
+    );
+    let level = &levels[0];
 
     let mut land = Land::new();
     land.init_plots();
@@ -328,14 +364,14 @@ fn init_adventure(character: &mut Character) {
 
     println!("Cha wanna do now?");
     loop {
-        let player_desire = prompt().to_lowercase();
+        let character_desire = prompt().to_lowercase();
 
-        match this_guy_wants_to(player_desire.as_ref()) {
+        match this_guy_wants_to(character_desire.as_ref()) {
             Ok(desire) => match desire {
                 Desire {
                     command: Command::Movement,
                     args,
-                } => match command_move_player(character, &land, args) {
+                } => match command_move_character(character, &land, args) {
                     Ok(_) => {}
                     Err(e) => {
                         println!("{}", e);
@@ -350,6 +386,10 @@ fn init_adventure(character: &mut Character) {
             Err(e) => {
                 println!("{}", e);
             }
+        }
+
+        if character.skril > level.key_price {
+            println!("You can get outa here now");
         }
     }
 }
