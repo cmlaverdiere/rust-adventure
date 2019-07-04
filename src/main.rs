@@ -1,5 +1,4 @@
 // TODO Option to save progress to file and reload.
-// TODO Separate into smaller, testable modules
 // TODO Message queue system for game events
 //      - decouples frontend / printing from game logic
 //      - enables testing of events fired instead of testing string messages
@@ -11,6 +10,7 @@
 mod creatures;
 mod geography;
 mod logger;
+mod system;
 
 use std::fs::{read_dir, File};
 use std::io::{self, Write};
@@ -22,6 +22,7 @@ use serde::Deserialize;
 use creatures::{Character, Sex};
 use geography::{in_bounds, Cardinal, Coord, Land};
 use logger::init_logger;
+use system::prompt;
 
 #[macro_use]
 extern crate log;
@@ -63,22 +64,6 @@ const YES_VALUES: [&str; 9] = [
 ];
 
 const DRAMATIC_PAUSE: time::Duration = time::Duration::from_millis(500);
-
-// TODO io module
-fn prompt() -> String {
-    let mut result = String::new();
-
-    print!("> ");
-    io::stdout().flush().unwrap();
-
-    io::stdin()
-        .read_line(&mut result)
-        .expect(READ_STRING_FAILURE);
-
-    result.pop();
-
-    result
-}
 
 fn confirm(answer: &str) -> bool {
     YES_VALUES.contains(&answer.to_lowercase().as_str())
