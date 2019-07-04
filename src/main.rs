@@ -1,15 +1,27 @@
 // TODO Option to save progress to file and reload.
-// TODO log game log to file for replay
-// TODO separate modules
+// TODO Separate into smaller, testable modules
+// TODO Message queue system for game events
+//      - decouples frontend / printing from game logic
+//      - enables testing of events fired instead of testing string messages
+//      - can use pub/sub pattern if need mutliple consumers
+// TODO Saving
+//      (serialize / deserialize game data,
+//       or replay commands (requires random seed))
 
-use rand::Rng;
+mod creatures;
+mod geography;
+mod logger;
+
 use std::fs::{read_dir, File};
 use std::io::{self, Write};
-use std::str::FromStr;
 use std::{thread, time};
 
 use clap::{App, Arg};
 use serde::Deserialize;
+
+use creatures::{Character, Sex};
+use geography::{in_bounds, Cardinal, Coord, Land};
+use logger::init_logger;
 
 #[macro_use]
 extern crate log;
@@ -17,103 +29,11 @@ extern crate clap;
 extern crate rand;
 extern crate serde;
 
-struct GameLogger;
-
-impl log::Log for GameLogger {
-    fn enabled(&self, _: &log::Metadata) -> bool { true }
-
-    fn log(&self, record: &log::Record) {
-        eprintln!("{}", record.args());
-    }
-
-    fn flush(&self) {}
-}
-
-type Coord = (usize, usize);
-
-struct Character {
-    name: String,
-    sex: Sex,
-    whereabouts: Option<Coord>,
-    skril: u64,
-}
-
-struct Land {
-    plots: Option<[[Plot; LAND_WIDTH_X]; LAND_WIDTH_Y]>,
-}
-
-impl Land {
-    pub fn new() -> Land {
-        Land { plots: None }
-    }
-
-    pub fn init_plots(&mut self) {
-        self.plots = Some(
-            [[Plot {
-                dosh: 0,
-                enemy: None,
-            }; LAND_WIDTH_X]; LAND_WIDTH_Y],
-        );
-        if let Some(mut plots) = self.plots {
-            for i in 0..LAND_WIDTH_X {
-                for j in 0..LAND_WIDTH_Y {
-                    let cabbage_rng = &mut rand::thread_rng();
-                    let enemy_rng = &mut rand::thread_rng();
-
-                    let zeni_chance = cabbage_rng.gen_range(0.0, 1.0);
-                    if zeni_chance < ZENI_GEN_CHANCE {
-                        plots[i][j].dosh = (zeni_chance * 10.0) as u64
-                    }
-
-                    let enemy_chance = enemy_rng.gen_range(0.0, 1.0);
-                    if enemy_chance < ENEMY_GEN_CHANCE {
-                        plots[i][j].enemy = Some(Bureaucrat {
-                            dough: (enemy_chance * 50.0) as u64,
-                            jurisdiction: Jurisdiction::Islands,
-                        });
-                    }
-                }
-            }
-            self.plots = Some(plots);
-        }
-    }
-}
-
-trait Enemy {
-    fn dough(&self) -> u64;
-    fn intimidate(&self);
-}
-
-#[derive(Copy, Clone, Debug, Deserialize)]
-struct Bureaucrat {
-    dough: u64,
-    jurisdiction: Jurisdiction,
-}
-
-impl Bureaucrat {
-    fn new(dough: u64, jurisdiction: Jurisdiction) -> Bureaucrat {
-        Bureaucrat {
-            dough,
-            jurisdiction,
-        }
-    }
-}
-
-impl Enemy for Bureaucrat {
-    fn intimidate(&self) {
-        println!("I'm gon raise yo taxes boy");
-    }
-
-    fn dough(&self) -> u64 {
-        self.dough
-    }
-}
-
-#[derive(Copy, Clone, Debug, Deserialize)]
-struct Plot {
-    dosh: u64,
-    enemy: Option<Bureaucrat>, // TODO Type parameter based on Enemy
-}
+// enum Event {
+//     ENEMY_INTIMIDATED_PLAYER,
+//     TIME_ADVANCED,
+//     CHARACTER_CREATED,
+// }
 
 #[derive(Debug, Deserialize)]
 struct Level {
@@ -122,55 +42,18 @@ struct Level {
     key_price: u64,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
-enum Jurisdiction {
-    Mountains,
-    Islands,
-    Tundra,
-    Desert,
-}
-
-#[derive(Debug)]
-enum Sex {
-    Boy,
-    Girl,
-}
-
-#[derive(Debug)]
-enum Cardinal {
-    North,
-    East,
-    South,
-    West,
-}
-
 enum Command {
     // Barter, // TODO
     Combat,
     Movement,
     System,
+    Repeat,
 }
 
 struct Desire {
     command: Command,
     args: Vec<String>,
 }
-
-impl FromStr for Cardinal {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Cardinal, ()> {
-        match s {
-            "north" => Ok(Cardinal::North),
-            "east" => Ok(Cardinal::East),
-            "south" => Ok(Cardinal::South),
-            "west" => Ok(Cardinal::West),
-            _ => Err(()),
-        }
-    }
-}
-
-static LOGGER: GameLogger = GameLogger;
 
 const LEVEL_DATA_PATH: &str = "src/res/";
 
@@ -181,12 +64,7 @@ const YES_VALUES: [&str; 9] = [
 
 const DRAMATIC_PAUSE: time::Duration = time::Duration::from_millis(500);
 
-const LAND_WIDTH_X: usize = 10;
-const LAND_WIDTH_Y: usize = 10;
-
-const ZENI_GEN_CHANCE: f32 = 0.3;
-const ENEMY_GEN_CHANCE: f32 = 0.2;
-
+// TODO io module
 fn prompt() -> String {
     let mut result = String::new();
 
@@ -274,6 +152,7 @@ fn create_character() -> Character {
 }
 
 fn read_levels() -> Vec<Level> {
+    debug!("Reading level data.");
     let files = read_dir(LEVEL_DATA_PATH)
         .expect("Level directory not found.")
         .flatten();
@@ -291,9 +170,9 @@ fn command_move_character(
     character: &mut Character,
     land: &Land,
     args: Vec<String>,
-) -> Result<(), &'static str> {
+) -> Result<(), String> {
     if args.len() != 2 {
-        return Err("I just need a direction hoss.");
+        return Err("I just need a direction hoss.".to_string());
     }
 
     let direction_str = &args[1];
@@ -302,6 +181,8 @@ fn command_move_character(
     match direction_str.parse::<Cardinal>() {
         Ok(direction) => {
             let i_moved_here = yo_whered_i_move_to(&direction, wb)?;
+
+            debug!("Moving character to {:?}.", i_moved_here);
 
             println!("You walk {:?}.", direction);
             character.whereabouts = Some((i_moved_here.0, i_moved_here.1));
@@ -320,12 +201,14 @@ fn command_move_character(
 
             Ok(())
         }
-        Err(_) => Err("tf?"),
+        Err(_) => Err(format!("go {}? what the fuck", direction_str)),
     }
 }
 
 fn command_fight_enemy(character: &mut Character, land: &Land, _args: Vec<String>) {
     let wb = character.whereabouts.unwrap();
+
+    debug!("Attempt to fight enemy at {:?}.", wb);
 
     match land.plots.unwrap()[wb.1][wb.0].enemy {
         Some(enemy) => {
@@ -347,6 +230,7 @@ fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
         "walk" | "go" | "run" => Ok(Command::Movement),
         "punch" | "kiss" | "lick" => Ok(Command::Combat),
         "quit" | "exit" => Ok(Command::System),
+        "" => Ok(Command::Repeat),
         _ => Err("Tf?"),
     };
 
@@ -380,8 +264,19 @@ fn init_adventure(character: &mut Character) {
     character.whereabouts = Some((0, 0));
 
     println!("Cha wanna do now?");
+
+    let mut repeat_last_command = false;
+    let mut previous_commands: Vec<String> = Vec::new();
+
     loop {
-        let character_desire = prompt().to_lowercase();
+        debug!("Character is at {:?}.", character.whereabouts.unwrap());
+
+        let character_desire = if !repeat_last_command {
+            prompt().to_lowercase()
+        } else {
+            repeat_last_command = false;
+            previous_commands.pop().unwrap()
+        };
 
         match this_guy_wants_to(character_desire.as_ref()) {
             Ok(desire) => match desire {
@@ -404,6 +299,14 @@ fn init_adventure(character: &mut Character) {
                     command: Command::System,
                     args,
                 } => return,
+
+                Desire {
+                    command: Command::Repeat,
+                    args,
+                } => {
+                    repeat_last_command = true;
+                    continue;
+                }
             },
             Err(e) => {
                 println!("{}", e);
@@ -413,6 +316,8 @@ fn init_adventure(character: &mut Character) {
         if character.skril > level.key_price {
             println!("You can get outa here now");
         }
+
+        previous_commands.push(character_desire);
     }
 }
 
@@ -431,16 +336,6 @@ fn yo_whered_i_move_to(direction: &Cardinal, wb: Coord) -> Result<Coord, &'stati
     } else {
         Ok((i_moved_here.0 as usize, i_moved_here.1 as usize))
     }
-}
-
-fn in_bounds(wb: (isize, isize)) -> bool {
-    wb.0 >= 0 && wb.1 >= 0 && wb.0 < (LAND_WIDTH_X as isize) && wb.1 < (LAND_WIDTH_Y as isize)
-}
-
-fn init_logger() -> Result<(), log::SetLoggerError> {
-    log::set_logger(&LOGGER)?;
-    log::set_max_level(log::LevelFilter::Debug);
-    Ok(())
 }
 
 fn main() {
