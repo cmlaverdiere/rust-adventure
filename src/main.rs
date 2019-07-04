@@ -11,9 +11,23 @@ use std::{thread, time};
 use clap::{App, Arg};
 use serde::Deserialize;
 
+#[macro_use]
+extern crate log;
 extern crate clap;
 extern crate rand;
 extern crate serde;
+
+struct GameLogger;
+
+impl log::Log for GameLogger {
+    fn enabled(&self, _: &log::Metadata) -> bool { true }
+
+    fn log(&self, record: &log::Record) {
+        eprintln!("{}", record.args());
+    }
+
+    fn flush(&self) {}
+}
 
 type Coord = (usize, usize);
 
@@ -134,7 +148,7 @@ enum Command {
     // Barter, // TODO
     Combat,
     Movement,
-    // System, // TODO
+    System,
 }
 
 struct Desire {
@@ -155,6 +169,8 @@ impl FromStr for Cardinal {
         }
     }
 }
+
+static LOGGER: GameLogger = GameLogger;
 
 const LEVEL_DATA_PATH: &str = "src/res/";
 
@@ -330,6 +346,7 @@ fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
     let command = match root {
         "walk" | "go" | "run" => Ok(Command::Movement),
         "punch" | "kiss" | "lick" => Ok(Command::Combat),
+        "quit" | "exit" => Ok(Command::System),
         _ => Err("Tf?"),
     };
 
@@ -382,6 +399,11 @@ fn init_adventure(character: &mut Character) {
                     command: Command::Combat,
                     args,
                 } => command_fight_enemy(character, &land, args),
+
+                Desire {
+                    command: Command::System,
+                    args,
+                } => return,
             },
             Err(e) => {
                 println!("{}", e);
@@ -415,7 +437,20 @@ fn in_bounds(wb: (isize, isize)) -> bool {
     wb.0 >= 0 && wb.1 >= 0 && wb.0 < (LAND_WIDTH_X as isize) && wb.1 < (LAND_WIDTH_Y as isize)
 }
 
+fn init_logger() -> Result<(), log::SetLoggerError> {
+    log::set_logger(&LOGGER)?;
+    log::set_max_level(log::LevelFilter::Debug);
+    Ok(())
+}
+
 fn main() {
+    if let Err(e) = init_logger() {
+        println!("Failure initializing logger: {}", e);
+        std::process::exit(1);
+    }
+
+    debug!("Game initializing.");
+
     let args = App::new("Adventure")
         .version("0.1")
         .author("Chris Laverdiere <cmlaverdiere@gmail.com>")
@@ -423,13 +458,19 @@ fn main() {
         .arg(Arg::with_name("skip-character-creation").short("s"))
         .get_matches();
 
+    debug!("Arguments parsed.");
+
     let mut character = if !args.is_present("skip-character-creation") {
         create_character()
     } else {
         get_default_character()
     };
 
+    debug!("Character created.");
+
     init_adventure(&mut character);
+
+    debug!("Exiting game.");
 }
 
 #[cfg(test)]
