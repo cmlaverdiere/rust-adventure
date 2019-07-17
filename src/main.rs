@@ -153,7 +153,7 @@ fn read_levels() -> Vec<Level> {
 
 fn command_move_character(
     character: &mut Character,
-    land: &Land,
+    land: &mut Land,
     args: Vec<String>,
 ) -> Result<(), String> {
     if args.len() != 2 {
@@ -172,7 +172,7 @@ fn command_move_character(
             println!("You walk {:?}.", direction);
             character.whereabouts = Some((i_moved_here.0, i_moved_here.1));
 
-            let new_plot = &mut land.plots.unwrap()[wb.1][wb.0];
+            let new_plot = &mut land.plots.as_mut().unwrap()[wb.1][wb.0];
 
             if new_plot.dosh != 0 {
                 println!("You found {} zeni boi", new_plot.dosh);
@@ -180,7 +180,7 @@ fn command_move_character(
                 new_plot.dosh = 0;
             }
 
-            if let Some(enemy) = new_plot.enemy {
+            if let Some(ref enemy) = new_plot.enemy {
                 println!("uh oh there's someone here 🤪");
             }
 
@@ -190,16 +190,14 @@ fn command_move_character(
     }
 }
 
-fn command_fight_enemy(character: &mut Character, land: &Land, _args: Vec<String>) {
+fn command_fight_enemy(character: &mut Character, land: &mut Land, _args: Vec<String>) {
     let wb = character.whereabouts.unwrap();
 
     debug!("Attempt to fight enemy at {:?}.", wb);
 
-    match land.plots.unwrap()[wb.1][wb.0].enemy {
+    match &mut land.plots.as_mut().unwrap()[wb.1][wb.0].enemy {
         Some(enemy) => {
-            character.skril += enemy.dough;
-            println!("This guy just gave you his life savings ({})", enemy.dough);
-            println!("say thank you sir");
+            enemy.fight(character);
         }
         None => {
             println!("Ain't nobody around pal...");
@@ -268,7 +266,7 @@ fn init_adventure(character: &mut Character) {
                 Desire {
                     command: Command::Movement,
                     args,
-                } => match command_move_character(character, &land, args) {
+                } => match command_move_character(character, &mut land, args) {
                     Ok(_) => {}
                     Err(e) => {
                         println!("{}", e);
@@ -278,7 +276,7 @@ fn init_adventure(character: &mut Character) {
                 Desire {
                     command: Command::Combat,
                     args,
-                } => command_fight_enemy(character, &land, args),
+                } => command_fight_enemy(character, &mut land, args),
 
                 Desire {
                     command: Command::System,

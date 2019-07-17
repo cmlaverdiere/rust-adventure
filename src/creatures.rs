@@ -1,3 +1,4 @@
+use std::fmt::{Debug};
 use geography::{Coord, Jurisdiction};
 use serde::Deserialize;
 
@@ -14,9 +15,13 @@ pub struct Character {
     pub skril: u64,
 }
 
-trait Enemy {
-    fn dough(&self) -> u64;
+pub trait Intimidating : Debug {
     fn intimidate(&self);
+    fn fight(&self, character: &mut Character);
+}
+
+trait Monetary {
+    fn dough(&self) -> u64;
 }
 
 #[derive(Copy, Clone, Debug, Deserialize)]
@@ -34,11 +39,19 @@ impl Bureaucrat {
     }
 }
 
-impl Enemy for Bureaucrat {
+impl Intimidating for Bureaucrat {
     fn intimidate(&self) {
         println!("I'm gon raise yo taxes boy");
     }
 
+    fn fight(&self, character: &mut Character) {
+        character.skril += self.dough;
+        println!("This guy just gave you his life savings ({})", self.dough);
+        println!("say thank you sir");
+    }
+}
+
+impl Monetary for Bureaucrat {
     fn dough(&self) -> u64 {
         self.dough
     }

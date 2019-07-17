@@ -2,7 +2,7 @@
 use rand::Rng;
 use std::str::FromStr;
 
-use creatures::Bureaucrat;
+use creatures::{Bureaucrat, Intimidating};
 use serde::Deserialize;
 
 const LAND_WIDTH_X: usize = 10;
@@ -35,13 +35,9 @@ impl Land {
     }
 
     pub fn init_plots(&mut self) {
-        self.plots = Some(
-            [[Plot {
-                dosh: 0,
-                enemy: None,
-            }; LAND_WIDTH_X]; LAND_WIDTH_Y],
-        );
-        if let Some(mut plots) = self.plots {
+        self.plots = Some(Default::default());
+
+        if let Some(ref mut plots) = self.plots {
             for i in 0..LAND_WIDTH_X {
                 for j in 0..LAND_WIDTH_Y {
                     let cabbage_rng = &mut rand::thread_rng();
@@ -54,14 +50,13 @@ impl Land {
 
                     let enemy_chance = enemy_rng.gen_range(0.0, 1.0);
                     if enemy_chance < ENEMY_GEN_CHANCE {
-                        plots[i][j].enemy = Some(Bureaucrat {
+                        plots[i][j].enemy = Some(Box::new(Bureaucrat {
                             dough: (enemy_chance * 50.0) as u64,
                             jurisdiction: Jurisdiction::Islands,
-                        });
+                        }));
                     }
                 }
             }
-            self.plots = Some(plots);
         }
     }
 }
@@ -88,10 +83,10 @@ impl FromStr for Cardinal {
     }
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Default, Debug)]
 pub struct Plot {
     pub dosh: u64,
-    pub enemy: Option<Bureaucrat>, // TODO Type parameter based on Enemy
+    pub enemy: Option<Box<Intimidating>>,
 }
 
 #[cfg(test)]
