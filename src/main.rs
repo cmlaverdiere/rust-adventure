@@ -6,6 +6,9 @@
 // TODO Saving
 //      (serialize / deserialize game data,
 //       or replay commands (requires random seed))
+// TODO Character stats and leveling up
+// TODO Debug map during gameplay
+// TODO Seed for random to allow testing? Or mocks?
 
 mod creatures;
 mod geography;
@@ -19,7 +22,7 @@ use std::{thread, time};
 use clap::{App, Arg};
 use serde::Deserialize;
 
-use creatures::{Character, Sex};
+use creatures::{Character, Monetary, Sex};
 use geography::{in_bounds, Cardinal, Coord, Land};
 use logger::init_logger;
 use system::prompt;
@@ -47,8 +50,10 @@ enum Command {
     // Barter, // TODO
     Combat,
     Movement,
-    System,
     Repeat,
+    Riding,
+    System,
+    // Debug, // TODO
 }
 
 struct Desire {
@@ -161,18 +166,17 @@ fn command_move_character(
     }
 
     let direction_str = &args[1];
-    let wb = character.whereabouts.unwrap();
+    let starting_wb = character.whereabouts.unwrap();
 
     match direction_str.parse::<Cardinal>() {
         Ok(direction) => {
-            let i_moved_here = yo_whered_i_move_to(&direction, wb)?;
-
-            debug!("Moving character to {:?}.", i_moved_here);
+            let i_moved_here = yo_whered_i_move_to(&direction, starting_wb)?;
 
             println!("You walk {:?}.", direction);
             character.whereabouts = Some((i_moved_here.0, i_moved_here.1));
 
-            let new_plot = &mut land.plots.as_mut().unwrap()[wb.1][wb.0];
+            let new_plot = &mut land.plots.as_mut().unwrap()[i_moved_here.0][i_moved_here.1];
+            debug!("New plot moved to: {:?}", new_plot);
 
             if new_plot.dosh != 0 {
                 println!("You found {} zeni boi", new_plot.dosh);
@@ -180,8 +184,12 @@ fn command_move_character(
                 new_plot.dosh = 0;
             }
 
-            if let Some(ref enemy) = new_plot.enemy {
+            if let Some(ref _enemy) = new_plot.enemy {
                 println!("uh oh there's someone here 🤪");
+            }
+
+            if let Some(ref _driver) = new_plot.driver {
+                println!("oh look an uber");
             }
 
             Ok(())
@@ -190,18 +198,42 @@ fn command_move_character(
     }
 }
 
-fn command_fight_enemy(character: &mut Character, land: &mut Land, _args: Vec<String>) {
+fn command_fight_enemy(
+    character: &mut Character,
+    land: &mut Land,
+    _args: Vec<String>,
+) -> Result<(), String> {
     let wb = character.whereabouts.unwrap();
 
     debug!("Attempt to fight enemy at {:?}.", wb);
 
-    match &mut land.plots.as_mut().unwrap()[wb.1][wb.0].enemy {
+    match &mut land.plots.as_mut().unwrap()[wb.0][wb.1].enemy {
         Some(enemy) => {
             enemy.fight(character);
+            Ok(())
         }
-        None => {
-            println!("Ain't nobody around pal...");
-        }
+        None => Err("Ain't nobody around pal...".to_string()),
+    }
+}
+
+fn command_rideshare(
+    character: &mut Character,
+    land: &mut Land,
+    _args: Vec<String>,
+) -> Result<(), String> {
+    let wb = character.whereabouts.unwrap();
+
+    debug!("Attempt to rideshare at {:?}.", wb);
+
+    match &mut land.plots.as_mut().unwrap()[wb.0][wb.1].driver {
+        Some(driver) => match driver.initiate_ride(character.skril) {
+            Ok(msg) => {
+                println!("{}", msg);
+                Ok(())
+            }
+            Err(msg) => Err(msg),
+        },
+        None => Err("gotta find a taxi first bub".to_string()),
     }
 }
 
@@ -211,8 +243,9 @@ fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
 
     let command = match root {
         "walk" | "go" | "run" => Ok(Command::Movement),
-        "punch" | "kiss" | "lick" => Ok(Command::Combat),
-        "quit" | "exit" => Ok(Command::System),
+        "take" | "ride" | "get in" => Ok(Command::Riding),
+        "punch" | "fight" | "lick" => Ok(Command::Combat),
+        "quit" | "bounce" => Ok(Command::System),
         "" => Ok(Command::Repeat),
         _ => Err("Tf?"),
     };
@@ -249,10 +282,11 @@ fn init_adventure(character: &mut Character) {
     println!("Cha wanna do now?");
 
     let mut repeat_last_command = false;
+    let mut alerted_exit = false;
     let mut previous_commands: Vec<String> = Vec::new();
 
     loop {
-        debug!("Character is at {:?}.", character.whereabouts.unwrap());
+        debug!("{:?}", character);
 
         let character_desire = if !repeat_last_command {
             prompt().to_lowercase()
@@ -276,7 +310,26 @@ fn init_adventure(character: &mut Character) {
                 Desire {
                     command: Command::Combat,
                     args,
-                } => command_fight_enemy(character, &mut land, args),
+                } => match command_fight_enemy(character, &mut land, args) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("{}", e);
+                    }
+                },
+
+                Desire {
+                    command: Command::Riding,
+                    args,
+                } => match command_rideshare(character, &mut land, args) {
+                    Ok(_) => {
+                        // TODO load new level, function to load level
+                        println!("GAME OVER - YOU WIN");
+                        return;
+                    }
+                    Err(e) => {
+                        println!("{}", e);
+                    }
+                },
 
                 Desire {
                     command: Command::System,
@@ -296,8 +349,9 @@ fn init_adventure(character: &mut Character) {
             }
         }
 
-        if character.skril > level.key_price {
+        if character.skril > level.key_price && !alerted_exit {
             println!("You can get outa here now");
+            alerted_exit = true;
         }
 
         previous_commands.push(character_desire);

@@ -2,7 +2,7 @@
 use rand::Rng;
 use std::str::FromStr;
 
-use creatures::{Bureaucrat, Intimidating};
+use creatures::{Bureaucrat, Intimidating, UberDriver};
 use serde::Deserialize;
 
 const LAND_WIDTH_X: usize = 10;
@@ -38,17 +38,16 @@ impl Land {
         self.plots = Some(Default::default());
 
         if let Some(ref mut plots) = self.plots {
+            let rng = &mut rand::thread_rng();
+
             for i in 0..LAND_WIDTH_X {
                 for j in 0..LAND_WIDTH_Y {
-                    let cabbage_rng = &mut rand::thread_rng();
-                    let enemy_rng = &mut rand::thread_rng();
-
-                    let zeni_chance = cabbage_rng.gen_range(0.0, 1.0);
+                    let zeni_chance = rng.gen_range(0.0, 1.0);
                     if zeni_chance < ZENI_GEN_CHANCE {
                         plots[i][j].dosh = (zeni_chance * 10.0) as u64
                     }
 
-                    let enemy_chance = enemy_rng.gen_range(0.0, 1.0);
+                    let enemy_chance = rng.gen_range(0.0, 1.0);
                     if enemy_chance < ENEMY_GEN_CHANCE {
                         plots[i][j].enemy = Some(Box::new(Bureaucrat {
                             dough: (enemy_chance * 50.0) as u64,
@@ -57,6 +56,10 @@ impl Land {
                     }
                 }
             }
+
+            let uber_x = rng.gen_range(0, LAND_WIDTH_X);
+            let uber_y = rng.gen_range(0, LAND_WIDTH_Y);
+            plots[uber_x][uber_y].driver = Some(Default::default());
         }
     }
 }
@@ -87,6 +90,7 @@ impl FromStr for Cardinal {
 pub struct Plot {
     pub dosh: u64,
     pub enemy: Option<Box<Intimidating>>,
+    pub driver: Option<UberDriver>,
 }
 
 #[cfg(test)]
