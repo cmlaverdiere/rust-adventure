@@ -88,3 +88,8 @@ impl UberDriver {
         }
     }
 }
+
+pub mod entity {
+    pub const TAXI: &str = "taxi";
+    pub const ENEMY: &str = "enemy";
+}

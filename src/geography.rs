@@ -1,8 +1,9 @@
 // TODO refactor game logic out of this module.
 use rand::Rng;
+use std::collections::HashMap;
 use std::str::FromStr;
 
-use creatures::{Bureaucrat, Intimidating, UberDriver};
+use creatures::{entity, Bureaucrat, Intimidating, UberDriver};
 use serde::Deserialize;
 
 const LAND_WIDTH_X: usize = 10;
@@ -26,15 +27,24 @@ pub enum Cardinal {
 }
 
 pub struct Land {
+    // TODO Remove as options, remove init_plots and merge into new.
     pub plots: Option<[[Plot; LAND_WIDTH_X]; LAND_WIDTH_Y]>,
+    pub entity_locations: Option<HashMap<&'static str, Vec<Coord>>>,
 }
 
 impl Land {
     pub fn new() -> Land {
-        Land { plots: None }
+        Land {
+            plots: None,
+            entity_locations: None,
+        }
     }
 
     pub fn init_plots(&mut self) {
+        let mut loc_map = HashMap::new();
+        loc_map.insert(entity::TAXI, Vec::new());
+        loc_map.insert(entity::ENEMY, Vec::new());
+
         self.plots = Some(Default::default());
 
         if let Some(ref mut plots) = self.plots {
@@ -44,7 +54,7 @@ impl Land {
                 for j in 0..LAND_WIDTH_Y {
                     let zeni_chance = rng.gen_range(0.0, 1.0);
                     if zeni_chance < ZENI_GEN_CHANCE {
-                        plots[i][j].dosh = (zeni_chance * 10.0) as u64
+                        plots[i][j].dosh = (zeni_chance * 10.0) as u64;
                     }
 
                     let enemy_chance = rng.gen_range(0.0, 1.0);
@@ -53,6 +63,7 @@ impl Land {
                             dough: (enemy_chance * 50.0) as u64,
                             jurisdiction: Jurisdiction::Islands,
                         }));
+                        loc_map.get_mut(entity::ENEMY).unwrap().push((i, j));
                     }
                 }
             }
@@ -60,7 +71,13 @@ impl Land {
             let uber_x = rng.gen_range(0, LAND_WIDTH_X);
             let uber_y = rng.gen_range(0, LAND_WIDTH_Y);
             plots[uber_x][uber_y].driver = Some(Default::default());
-        }
+            loc_map
+                .get_mut(entity::TAXI)
+                .unwrap()
+                .push((uber_x, uber_y));
+        };
+
+        self.entity_locations = Some(loc_map);
     }
 }
 

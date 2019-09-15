@@ -7,7 +7,7 @@
 //      (serialize / deserialize game data,
 //       or replay commands (requires random seed))
 // TODO Character stats and leveling up
-// TODO Debug map during gameplay
+// TODO Debug commands during gameplay
 // TODO Seed for random to allow testing? Or mocks?
 
 mod creatures;
@@ -53,7 +53,7 @@ enum Command {
     Repeat,
     Riding,
     System,
-    // Debug, // TODO
+    Debug,
 }
 
 struct Desire {
@@ -237,6 +237,24 @@ fn command_rideshare(
     }
 }
 
+fn command_debug_info(
+    character: &mut Character,
+    land: &mut Land,
+    args: Vec<String>,
+) -> Result<(), String> {
+    if args.len() != 2 {
+        return Err("gotta tell me what to print out hoss".to_string());
+    }
+
+    let obj = &args[1];
+    match land.entity_locations.as_ref().unwrap().get(obj.as_str()) {
+        Some(entities) => println!("{:?}", entities),
+        None => println!("None of whatever those are around."),
+    }
+
+    Ok(())
+}
+
 fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
     let components = input.split(' ').collect::<Vec<&str>>();
     let root = components[0];
@@ -246,6 +264,7 @@ fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
         "take" | "ride" | "get in" => Ok(Command::Riding),
         "punch" | "fight" | "lick" => Ok(Command::Combat),
         "quit" | "bounce" => Ok(Command::System),
+        "debug" | "dbg" | "p" => Ok(Command::Debug),
         "" => Ok(Command::Repeat),
         _ => Err("Tf?"),
     };
@@ -335,6 +354,16 @@ fn init_adventure(character: &mut Character) {
                     command: Command::System,
                     args,
                 } => return,
+
+                Desire {
+                    command: Command::Debug,
+                    args,
+                } => match command_debug_info(character, &mut land, args) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("{}", e);
+                    }
+                },
 
                 Desire {
                     command: Command::Repeat,

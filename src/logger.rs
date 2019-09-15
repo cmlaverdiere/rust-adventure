@@ -19,4 +19,3 @@ pub fn init_logger() -> Result<(), log::SetLoggerError> {
     log::set_max_level(log::LevelFilter::Debug);
     Ok(())
 }
-
