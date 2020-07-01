@@ -14,8 +14,15 @@ impl log::Log for GameLogger {
 
 static LOGGER: GameLogger = GameLogger;
 
-pub fn init_logger() -> Result<(), log::SetLoggerError> {
+pub fn init_logger(debug_enabled: bool) -> Result<(), log::SetLoggerError> {
     log::set_logger(&LOGGER)?;
-    log::set_max_level(log::LevelFilter::Debug);
+
+    let log_level = if debug_enabled {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+
+    log::set_max_level(log_level);
     Ok(())
 }

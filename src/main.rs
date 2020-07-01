@@ -1,4 +1,3 @@
-// TODO Option to save progress to file and reload.
 // TODO Message queue system for game events
 //      - decouples frontend / printing from game logic
 //      - enables testing of events fired instead of testing string messages
@@ -7,7 +6,6 @@
 //      (serialize / deserialize game data,
 //       or replay commands (requires random seed))
 // TODO Character stats and leveling up
-// TODO Debug commands during gameplay
 // TODO Seed for random to allow testing? Or mocks?
 
 mod creatures;
@@ -22,7 +20,7 @@ use std::{thread, time};
 use clap::{App, Arg};
 use serde::Deserialize;
 
-use creatures::{Character, Monetary, Sex};
+use creatures::{Character, Sex, Stats};
 use geography::{in_bounds, Cardinal, Coord, Land};
 use logger::init_logger;
 use system::prompt;
@@ -63,7 +61,6 @@ struct Desire {
 
 const LEVEL_DATA_PATH: &str = "src/res/";
 
-const READ_STRING_FAILURE: &str = "What? I didn't get that...";
 const YES_VALUES: [&str; 9] = [
     "y", "yes", "yea", "yeah", "uh huh", "yeh", "sure", "why not", "totally",
 ];
@@ -405,22 +402,22 @@ fn yo_whered_i_move_to(direction: &Cardinal, wb: Coord) -> Result<Coord, &'stati
 }
 
 fn main() {
-    if let Err(e) = init_logger() {
-        println!("Failure initializing logger: {}", e);
-        std::process::exit(1);
-    }
-
-    debug!("Game initializing.");
-
     let args = App::new("Adventure")
         .version("0.1")
         .author("Chris Laverdiere <cmlaverdiere@gmail.com>")
         .about("A text-based adventure game")
         .arg(Arg::with_name("skip-character-creation").short("s"))
+        .arg(Arg::with_name("debug").short("d"))
         .get_matches();
 
     debug!("Arguments parsed.");
 
+    if let Err(e) = init_logger(args.is_present("debug")) {
+        println!("Failure initializing logger: {}", e);
+        std::process::exit(1);
+    }
+
+    debug!("Game initializing.");
     let mut character = if !args.is_present("skip-character-creation") {
         create_character()
     } else {
