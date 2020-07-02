@@ -1,7 +1,8 @@
+// TODO Make letters print slowly as if a video game
 // TODO Message queue system for game events
 //      - decouples frontend / printing from game logic
 //      - enables testing of events fired instead of testing string messages
-//      - can use pub/sub pattern if need mutliple consumers
+//      - can use pub/sub pattern if need multiple consumers
 // TODO Saving
 //      (serialize / deserialize game data,
 //       or replay commands (requires random seed))
@@ -13,6 +14,7 @@ mod geography;
 mod logger;
 mod system;
 
+use rand::Rng;
 use std::fs::{read_dir, File};
 use std::io::{self, Write};
 use std::{thread, time};
@@ -20,10 +22,10 @@ use std::{thread, time};
 use clap::{App, Arg};
 use serde::Deserialize;
 
-use creatures::{Character, Sex, Stats};
+use creatures::{Character, Monetary, Sex, Stats};
 use geography::{in_bounds, Cardinal, Coord, Land};
 use logger::init_logger;
-use system::prompt;
+use system::{delay_print, prompt};
 
 #[macro_use]
 extern crate log;
@@ -45,12 +47,12 @@ struct Level {
 }
 
 enum Command {
-    // Barter, // TODO
     Combat,
     Movement,
     Repeat,
     Riding,
     System,
+    Train,
     Debug,
 }
 
@@ -61,8 +63,24 @@ struct Desire {
 
 const LEVEL_DATA_PATH: &str = "src/res/";
 
-const YES_VALUES: [&str; 9] = [
-    "y", "yes", "yea", "yeah", "uh huh", "yeh", "sure", "why not", "totally",
+const YES_VALUES: [&str; 17] = [
+    "y",
+    "yes",
+    "yea",
+    "yeah",
+    "uh huh",
+    "yeh",
+    "sure",
+    "why not",
+    "totally",
+    "okay",
+    "ok",
+    "i guess",
+    "whatever",
+    "hell yeah",
+    "fuck yeah",
+    "fuck yes",
+    "yes oh lord",
 ];
 
 const DRAMATIC_PAUSE: time::Duration = time::Duration::from_millis(500);
@@ -72,13 +90,18 @@ fn confirm(answer: &str) -> bool {
 }
 
 fn get_default_character() -> Character {
-    let name = "Chris".to_string();
+    let name = "Bobby Hill".to_string();
 
     Character {
         name,
         sex: Sex::Boy,
         whereabouts: None,
         skril: 0,
+        stats: Stats {
+            muscles: 0,
+            brains: 0,
+            mojo: 0,
+        },
     }
 }
 
@@ -135,6 +158,11 @@ fn create_character() -> Character {
         sex,
         whereabouts: None,
         skril: 0,
+        stats: Stats {
+            muscles: 0,
+            brains: 0,
+            mojo: 0,
+        },
     }
 }
 
@@ -182,16 +210,68 @@ fn command_move_character(
             }
 
             if let Some(ref _enemy) = new_plot.enemy {
-                println!("uh oh there's someone here 🤪");
+                println!("uh oh there's a baddie here 🤪");
             }
 
             if let Some(ref _driver) = new_plot.driver {
                 println!("oh look an uber");
             }
 
+            if let Some(ref _trainer) = new_plot.trainer {
+                println!("is that a personal trainer? he looks small and poor");
+            }
+
             Ok(())
         }
         Err(_) => Err(format!("go {}? what the fuck", direction_str)),
+    }
+}
+
+fn command_train(
+    character: &mut Character,
+    land: &mut Land,
+    _args: Vec<String>,
+) -> Result<(), String> {
+    let wb = character.whereabouts.unwrap();
+
+    debug!("Attempt to train at {:?}.", wb);
+
+    match &mut land.plots.as_mut().unwrap()[wb.0][wb.1].trainer.as_mut() {
+        Some(trainer) => {
+            // TODO train, increase stats, printout each line
+            let cost = ((character.stats.muscles + character.stats.mojo + character.stats.brains)
+                as f64)
+                .sqrt() as u64;
+            if cost == 0 {
+                println!("First session's free, you ready?");
+            } else {
+                println!("You can train but it'll cost you {}, capiche?", cost);
+            }
+
+            let response = prompt();
+            if confirm(&response) {
+                if character.skril >= cost {
+                    trainer.take_payment(cost);
+                    character.skril -= cost;
+
+                    let rng = &mut rand::thread_rng();
+                    let muscle_inc = rng.gen_range(3, 12);
+                    print!("{:💪<1$} ", "", muscle_inc as usize);
+                    print!(
+                        "Muscles {} -> {}",
+                        character.stats.muscles,
+                        character.stats.muscles + muscle_inc,
+                    );
+                    println!(" {:💪<1$}", "", muscle_inc as usize);
+                    character.stats.muscles += muscle_inc;
+                } else {
+                    println!("You can't afford this. Get a job.");
+                }
+            }
+
+            Ok(())
+        }
+        None => Err("No gains to be found here bub".to_string()),
     }
 }
 
@@ -260,6 +340,7 @@ fn this_guy_wants_to(input: &str) -> Result<Desire, &str> {
         "walk" | "go" | "run" => Ok(Command::Movement),
         "take" | "ride" | "get in" => Ok(Command::Riding),
         "punch" | "fight" | "lick" => Ok(Command::Combat),
+        "train" | "lift" | "exercise" | "workout" | "work out" => Ok(Command::Train),
         "quit" | "bounce" => Ok(Command::System),
         "debug" | "dbg" | "p" => Ok(Command::Debug),
         "" => Ok(Command::Repeat),
@@ -317,6 +398,16 @@ fn init_adventure(character: &mut Character) {
                     command: Command::Movement,
                     args,
                 } => match command_move_character(character, &mut land, args) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("{}", e);
+                    }
+                },
+
+                Desire {
+                    command: Command::Train,
+                    args,
+                } => match command_train(character, &mut land, args) {
                     Ok(_) => {}
                     Err(e) => {
                         println!("{}", e);

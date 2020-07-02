@@ -1,4 +1,7 @@
 use std::io::{self, Write};
+use std::{thread, time};
+
+const PRINT_DELAY_MS: time::Duration = time::Duration::from_millis(25);
 
 const READ_STRING_FAILURE: &str = "What? I didn't get that...";
 
@@ -15,4 +18,12 @@ pub fn prompt() -> String {
     result.pop();
 
     result
+}
+
+pub fn delay_print(s: &str) {
+    s.chars().for_each(|c| {
+        print!("{}", c);
+        io::stdout().flush().unwrap();
+        thread::sleep(PRINT_DELAY_MS);
+    });
 }

@@ -3,7 +3,7 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use creatures::{entity, Bureaucrat, Intimidating, UberDriver};
+use creatures::{entity, Bureaucrat, Intimidating, PersonalTrainer, UberDriver};
 use serde::Deserialize;
 
 const LAND_WIDTH_X: usize = 10;
@@ -44,6 +44,7 @@ impl Land {
         let mut loc_map = HashMap::new();
         loc_map.insert(entity::TAXI, Vec::new());
         loc_map.insert(entity::ENEMY, Vec::new());
+        loc_map.insert(entity::PERSONAL_TRAINER, Vec::new());
 
         self.plots = Some(Default::default());
 
@@ -75,6 +76,12 @@ impl Land {
                 .get_mut(entity::TAXI)
                 .unwrap()
                 .push((uber_x, uber_y));
+
+            plots[5][0].trainer = Some(Default::default());
+            loc_map
+                .get_mut(entity::PERSONAL_TRAINER)
+                .unwrap()
+                .push((5, 0));
         };
 
         self.entity_locations = Some(loc_map);
@@ -94,10 +101,10 @@ impl FromStr for Cardinal {
 
     fn from_str(s: &str) -> Result<Cardinal, ()> {
         match s {
-            "north" => Ok(Cardinal::North),
-            "east" => Ok(Cardinal::East),
-            "south" => Ok(Cardinal::South),
-            "west" => Ok(Cardinal::West),
+            "north" | "up" => Ok(Cardinal::North),
+            "east" | "right" => Ok(Cardinal::East),
+            "south" | "down" => Ok(Cardinal::South),
+            "west" | "left" => Ok(Cardinal::West),
             _ => Err(()),
         }
     }
@@ -108,6 +115,7 @@ pub struct Plot {
     pub dosh: u64,
     pub enemy: Option<Box<Intimidating>>,
     pub driver: Option<UberDriver>,
+    pub trainer: Option<PersonalTrainer>,
 }
 
 #[cfg(test)]
